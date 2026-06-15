@@ -9,9 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@xdevplatform/xdk": "^0.5.0",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "twitter-api-sdk": "^1.2.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
