@@ -32,5 +32,19 @@ export async function fetchPrices(ticker: string): Promise<TwelveDataBar[]> {
 }
 
 export function mergePrices(points: TickerPoint[], prices: TwelveDataBar[]): TickerPoint[] {
-  throw new Error('implement me')
+  const EDT_OFFSET_MS = 4 * 60 * 60 * 1000
+
+  const priceByHour = new Map<string, number>()
+  for (const bar of prices) {
+    const easternMs = new Date(bar.datetime.replace(' ', 'T') + 'Z').getTime()
+    const utcHour = new Date(easternMs + EDT_OFFSET_MS)
+    utcHour.setUTCMinutes(0, 0, 0)
+    const key = utcHour.toISOString().slice(0, 19) + 'Z'
+    priceByHour.set(key, parseFloat(bar.close))
+  }
+
+  return points.map(p => ({
+    ...p,
+    price: priceByHour.get(p.hour) ?? null,
+  }))
 }

@@ -13,9 +13,11 @@
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sentiment": "^5.0.2",
     "twitter-api-sdk": "^1.2.1"
   },
   "devDependencies": {
+    "@types/sentiment": "^5.0.4",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

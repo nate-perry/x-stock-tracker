@@ -1,4 +1,8 @@
+import Sentiment from 'sentiment'
+
 import type { TickerPoint, XPost, XResponse } from './types'
+
+const sentiment = new Sentiment()
 
 export async function fetchPosts(ticker: string): Promise<XPost[]> {
   const token = process.env.X_BEARER_TOKEN
@@ -22,4 +26,31 @@ export async function fetchPosts(ticker: string): Promise<XPost[]> {
 
   const data: XResponse = await res.json()
   return data.data ?? []
+}
+
+
+export function scorePost(text: string): number {
+  const result = sentiment.analyze(text)
+  return result.comparative
+}
+
+export function bucketPostsHourly(posts: XPost[]): TickerPoint[] {
+  const buckets = new Map<string, XPost[]>()
+
+  for (const post of posts) {
+    const d = new Date(post.created_at)
+    d.setUTCMinutes(0, 0, 0)
+    const hour = d.toISOString().slice(0, 19) + 'Z'
+
+    buckets.set(hour, [...(buckets.get(hour) ?? []), post])
+  }
+
+  return Array.from(buckets.entries())
+    .map(([hour, bucket]) => ({
+      hour,
+      mentions: bucket.length,
+      sentiment: bucket.reduce((sum, p) => sum + scorePost(p.text), 0) / bucket.length,
+      price: null,
+    }))
+    .sort((a, b) => a.hour.localeCompare(b.hour))
 }
