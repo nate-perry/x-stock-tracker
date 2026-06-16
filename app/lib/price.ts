@@ -19,7 +19,7 @@ export async function fetchPrices(ticker: string): Promise<TwelveDataBar[]> {
   const url = new URL('https://api.twelvedata.com/time_series')
   url.searchParams.set('symbol', ticker)
   url.searchParams.set('interval', '1h')
-  url.searchParams.set('outputsize', '24')
+  url.searchParams.set('outputsize', '168')
   url.searchParams.set('apikey', process.env.TWELVE_DATA_API_KEY!)
 
   const res = await fetch(url.toString(), { cache: 'no-store' })

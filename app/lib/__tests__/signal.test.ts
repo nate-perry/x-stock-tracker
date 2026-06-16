@@ -1,31 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { scorePost, bucketPostsHourly } from '../x'
+import { bucketPostsHourly } from '../x'
 import { mergePrices } from '../price'
 import type { XPost } from '../types'
 
-// --- scorePost ---
-
-describe('scorePost', () => {
-  it('returns positive score for bullish text', () => {
-    expect(scorePost('NVDA is outstanding, strong gains today')).toBeGreaterThan(0)
-  })
-
-  it('returns negative score for bearish text', () => {
-    expect(scorePost('NVDA is terrible, awful losses, very bad outlook')).toBeLessThan(0)
-  })
-
-  it('returns a higher score for more positive text', () => {
-    const weak = scorePost('NVDA is good')
-    const strong = scorePost('NVDA is outstanding and superb')
-    expect(strong).toBeGreaterThan(weak)
-  })
-})
+function makePost(created_at: string, text = 'NVDA looks good', likes = 0): XPost {
+  return {
+    id: created_at,
+    text,
+    created_at,
+    edit_history_tweet_ids: [],
+    public_metrics: { like_count: likes, retweet_count: 0, reply_count: 0, impression_count: 0 },
+  }
+}
 
 // --- bucketPostsHourly ---
-
-function makePost(created_at: string, text = 'NVDA looks good'): XPost {
-  return { id: created_at, text, created_at, edit_history_tweet_ids: [] }
-}
 
 describe('bucketPostsHourly', () => {
   it('groups posts in the same hour into one bucket', () => {
@@ -62,9 +50,10 @@ describe('bucketPostsHourly', () => {
     ])
   })
 
-  it('sets price to null', () => {
+  it('sets price to null and sentiment to 0 (Grok fills these in)', () => {
     const points = bucketPostsHourly([makePost('2026-06-15T14:00:00.000Z')])
     expect(points[0].price).toBeNull()
+    expect(points[0].sentiment).toBe(0)
   })
 })
 
@@ -73,7 +62,6 @@ describe('bucketPostsHourly', () => {
 describe('mergePrices', () => {
   it('fills price for exact hour match', () => {
     const points = [{ hour: '2026-06-15T19:00:00Z', mentions: 5, sentiment: 0.1, price: null }]
-    // Twelve Data datetime "2026-06-15 15:00:00" Eastern = 19:00 UTC
     const prices = [{ datetime: '2026-06-15 15:00:00', open: '210', high: '215', low: '209', close: '212.46', volume: '1000000' }]
     const merged = mergePrices(points, prices)
     expect(merged[0].price).toBeCloseTo(212.46)

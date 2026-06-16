@@ -10,6 +10,12 @@ export interface XPost {
     text: string
     created_at: string
     edit_history_tweet_ids: string[]
+    public_metrics: {
+        like_count: number
+        retweet_count: number
+        reply_count: number
+        impression_count: number
+    }
 }
 
 export interface XResponse {
