@@ -19,6 +19,7 @@ interface SignalResponse {
   points: TickerPoint[]
   summary: string
   overall_sentiment: number
+  stale: boolean
 }
 
 export default function Home() {
@@ -103,6 +104,9 @@ export default function Home() {
               <span className="text-xs text-zinc-600">
                 cached {Math.round((Date.now() - cachedAt) / 60000)}m ago
               </span>
+            )}
+            {data?.stale && (
+              <span className="text-xs text-amber-500 animate-pulse">↻ refreshing</span>
             )}
             <button
               onClick={() => loadTicker(activeTicker, true)}
