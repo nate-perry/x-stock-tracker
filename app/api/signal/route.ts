@@ -1,39 +1,43 @@
 import type { NextRequest } from 'next/server'
-import { fetchPosts, fetchMentionCounts, bucketPostsHourly } from '@/app/lib/x'
-import { fetchPrices, mergePrices } from '@/app/lib/price'
-import { analyzeTicker } from '@/app/lib/grok'
+import { computeSignal, type SignalData } from '@/app/lib/signal'
+import { TICKERS, type TickerSymbol } from '@/app/lib/tickers'
 
-const TTL_MS = 5 * 60 * 1000
-const cache = new Map<string, { data: unknown; expiresAt: number }>()
+const KV_TTL_S = 5 * 60
+const localCache = new Map<string, { data: SignalData; expiresAt: number }>()
+
+async function cacheGet(key: string): Promise<SignalData | null> {
+  if (!process.env.KV_REST_API_URL) {
+    const entry = localCache.get(key)
+    return entry && entry.expiresAt > Date.now() ? entry.data : null
+  }
+  const { kv } = await import('@vercel/kv')
+  return kv.get<SignalData>(key)
+}
+
+async function cacheSet(key: string, data: SignalData) {
+  if (!process.env.KV_REST_API_URL) {
+    localCache.set(key, { data, expiresAt: Date.now() + KV_TTL_S * 1000 })
+    return
+  }
+  const { kv } = await import('@vercel/kv')
+  await kv.set(key, data, { ex: KV_TTL_S })
+}
 
 export async function GET(request: NextRequest) {
-  const ticker = request.nextUrl.searchParams.get('ticker')
-  if (!ticker) return Response.json({ error: 'ticker required' }, { status: 400 })
-
-  const cached = cache.get(ticker)
-  if (cached && cached.expiresAt > Date.now()) {
-    return Response.json(cached.data)
+  const ticker = request.nextUrl.searchParams.get('ticker')?.toUpperCase()
+  if (!ticker || !(ticker in TICKERS)) {
+    return Response.json({ error: 'invalid ticker' }, { status: 400 })
   }
 
-  const [posts, prices, mentionCounts] = await Promise.all([
-    fetchPosts(ticker),
-    fetchPrices(ticker),
-    fetchMentionCounts(ticker),
-  ])
+  const force = request.nextUrl.searchParams.get('force') === 'true'
 
-  const grokResult = await analyzeTicker(ticker, posts)
+  if (!force) {
+    const cached = await cacheGet(ticker)
+    if (cached) return Response.json(cached)
+  }
 
-  const sentimentByHour = new Map(grokResult.hourly.map(h => [h.hour, h.sentiment]))
-
-  const rawPoints = bucketPostsHourly(posts).map(p => ({
-    ...p,
-    mentions: mentionCounts.get(p.hour) ?? p.mentions,
-    sentiment: sentimentByHour.get(p.hour) ?? p.sentiment,
-  }))
-  const points = mergePrices(rawPoints, prices)
-
-  const data = { points, summary: grokResult.summary, overall_sentiment: grokResult.overall_sentiment }
-  cache.set(ticker, { data, expiresAt: Date.now() + TTL_MS })
+  const data = await computeSignal(ticker as TickerSymbol)
+  await cacheSet(ticker, data)
 
   return Response.json(data)
 }
