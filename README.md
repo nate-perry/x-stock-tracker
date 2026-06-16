@@ -1,36 +1,131 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SIGNAL
 
-## Getting Started
+Pick a stock ticker, pull the last 24 hours of X posts, sore sentiment using Grok, and overlay everything against price + mention volume so you can actually see how narrative and price move together.
 
-First, run the development server:
+Live deployment: [stock.nrperry.com](https://stock.nrperry.com)
+
+---
+
+## What it does
+
+1. Pulls ~24 hours of X posts for a ticker (`$NVDA`, `$TSLA`, etc.) using 1-hour windows in parallel. This is mainly to get around the 100-post cap in the X recent search API so we don’t just see the latest spike.
+
+2. Pulls real mention counts from the X counts endpoint. This is what drives the hourly volume bars in the chart.
+
+3. Runs sentiment scoring using Grok (`grok-4.3`). Posts are grouped by hour and sent in one structured request. Output is hourly sentiment in `[-1, 1]` plus a short narrative summary.
+
+4. Pulls hourly price candles from Twelve Data and aligns everything to the same timeline so sentiment and price are actually comparable.
+
+5. Pulls basic company profile data from the X user API and surfaces top posts ranked by engagement.
+
+
+---
+
+## Architecture
+
+```
+page.tsx (client)
+  └── /api/signal      
+        └── computeSignal()   
+              ├── fetchPosts()            24x 1 hour windows 
+              ├── fetchMentionCounts()    X counts endpoint
+              ├── fetchPrices()           Twelve Data OHLC
+              └── analyzeTicker()    
+  └── /api/profile     X users info
+  └── /api/warm        Cron pre-warm endpoint (protected by CRON_SECRET)
+```
+## Caching
+
+Three layers so this doesn’t fall over under load:
+
+| Layer | Scope | Why it exists |
+|------|------|----------------|
+| In-memory Map | single server instance | instant reuse during runtime |
+| localStorage | browser | avoids refetching same ticker on reload |
+| Vercel KV | shared cache | keeps responses warm across users |
+
+KV uses stale-while-revalidate so most requests return instantly even if data is slightly outdated.
+
+There’s also a cron job that hits `/api/warm` at market open to pre-seed common tickers.
+
+---
+## Why Grok for sentiment
+
+Financial text is messy.
+
+Things like “beat”, “miss”, “priced in”, “short squeeze”, “cut guidance” don’t behave well with generic sentiment models.
+
+Grok handles that context better than basic sentiment models, so instead of maintaining a lexicon + weighting system, we just send grouped posts and get back:
+
+- hourly sentiment scores (`-1 → 1`)
+- a short narrative summary
+
+
+---
+### Given more time
+
+These are features I would prioritize:
+- **X Activity API for live company signal**
+  -  I evaluated Activity API for use in this project however given its streaming nature it didnt work for my serverless vercel deployment and I did not have enough time to migrate. I think it would be interesting to see if there was any indicator data related to a company's account level updates and how that compares to mentions/stock price/etc
+- **Real time updates**
+  - Along the same lines as the above for justification it would be nice to implement the filtered stream listener directly to a db and then our frontend could poll that directly, making the caching process a little more straight forward
+- **Sentiment vs Price as a quantified signal** 
+  - right now the lead/lag is visual, with more time I would compute the cross-correlation, i.e. does sentiment lead price by `n` hours? And attempt to calculate what that looks like 
+- **Backtesting**
+  - Right now our app only visualizes the last 24 hours, it would be interesting to store historical sentiment over time and price to test whether the lead signal is predictive not just illustrative
+- **Sentiment confidence/volume weighting** 
+  - Down weight low volume hours where a handful of posts are more likely to swing the score
+- **More stock tickers**
+  - It would be nice for customers to be able to bring their own stock ticker and we have a system to get the x account from that in an automated fashion so we dont need to hard code the ticker + x account like we are right now
+
+---
+
+## Stack
+
+- Next.js 16 (App Router, TypeScript, Tailwind)
+- Recharts (dual-axis chart: price, mentions, sentiment)
+- X API v2 (search/recent, counts/recent, users/by/username)
+- Grok (`grok-4.3`) for sentiment + summarization
+- Twelve Data for hourly OHLC candles
+- Vercel KV (Upstash Redis) for caching
+- Vitest for utility tests
+
+
+---
+
+## Local setup
 
 ```bash
+npm install
+cp .env.example .env.local
+# fill in env vars (see below)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+X_BEARER_TOKEN=        # X API v2 bearer token
+TWELVE_DATA_API_KEY=   # Twelve Data (twelvedata.com)
+XAI_API_KEY=           # xAI / Grok (api.x.ai)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+KV_REST_API_URL=       # Vercel KV REST URL (optional — falls back to in-memory Map locally)
+KV_REST_API_TOKEN=     # Vercel KV REST token
+CRON_SECRET=           # Random string to protect /api/warm
+```
 
-## Learn More
+KV is optional locally, it falls back to an in-memory Map.
 
-To learn more about Next.js, take a look at the following resources:
+### Tests
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm test
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Tickers
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+SPCX · TSLA · NVDA · AAPL · AMZN · GME
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Defined in `app/lib/tickers.ts` — add a symbol, display name, and X handle to extend.
