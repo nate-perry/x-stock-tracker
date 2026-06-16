@@ -42,20 +42,24 @@ export default function Home() {
     catch { /* storage full — silent fail */ }
   }
 
-  const [ticker, setTicker] = useState<TickerSymbol>('NVDA')
+  const [ticker, setTicker] = useState<TickerSymbol>('SPCX')
   const [activeTicker, setActiveTicker] = useState('')
   const [data, setData] = useState<SignalResponse | null>(null)
   const [profile, setProfile] = useState<XProfile | null>(null)
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cachedAt, setCachedAt] = useState<number | null>(null)
   const sessionCache = useRef<Map<string, SignalResponse>>(new Map())
 
   useEffect(() => {
     const last = localStorage.getItem('signal:last')
-    if (!last) return
-    const cached = readCache(last)
-    if (cached) { setData(cached); setActiveTicker(last); setCachedAt(JSON.parse(localStorage.getItem(`signal:${last}`)!).ts) }
+    const cached = last ? readCache(last) : null
+    if (cached) {
+      setData(cached); setActiveTicker(last!); setCachedAt(JSON.parse(localStorage.getItem(`signal:${last}`)!).ts)
+    } else {
+      loadTicker('SPCX')
+    }
   }, [])
 
   async function loadTicker(t: string, force = false) {
@@ -70,7 +74,8 @@ export default function Home() {
         return
       }
     }
-    setLoading(true); setData(null); setProfile(null)
+    if (force) setRefreshing(true)
+    else { setLoading(true); setData(null); setProfile(null) }
     try {
       const [signalRes, profileRes] = await Promise.all([
         fetch(`/api/signal?ticker=${encodeURIComponent(t)}${force ? '&force=true' : ''}`),
@@ -90,7 +95,7 @@ export default function Home() {
       if (profileRes.ok) setProfile(await profileRes.json())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
-    } finally { setLoading(false) }
+    } finally { setLoading(false); setRefreshing(false) }
   }
 
 
@@ -115,15 +120,13 @@ export default function Home() {
                 cached {Math.round((Date.now() - cachedAt) / 60000)}m ago
               </span>
             )}
-            {data?.stale && (
-              <span className="text-xs text-amber-500 animate-pulse">↻ refreshing</span>
-            )}
             <button
               onClick={() => loadTicker(activeTicker, true)}
-              disabled={loading}
-              className="text-xs text-zinc-500 hover:text-white disabled:opacity-40 transition-colors"
+              disabled={loading || refreshing}
+              className="text-xs text-zinc-500 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
             >
-              ↻ Refresh
+              <span className={refreshing ? 'animate-spin inline-block' : ''}>↻</span>
+              {refreshing ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         )}
