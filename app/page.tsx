@@ -12,13 +12,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import type { TickerPoint } from './lib/types'
+import type { TickerPoint, XPost } from './lib/types'
 import { TICKERS, type TickerSymbol } from './lib/tickers'
+import type { XProfile } from './api/profile/route'
 
 interface SignalResponse {
   points: TickerPoint[]
   summary: string
   overall_sentiment: number
+  topPosts: XPost[]
   stale: boolean
 }
 
@@ -43,6 +45,7 @@ export default function Home() {
   const [ticker, setTicker] = useState<TickerSymbol>('NVDA')
   const [activeTicker, setActiveTicker] = useState('')
   const [data, setData] = useState<SignalResponse | null>(null)
+  const [profile, setProfile] = useState<XProfile | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cachedAt, setCachedAt] = useState<number | null>(null)
@@ -67,17 +70,24 @@ export default function Home() {
         return
       }
     }
-    setLoading(true); setData(null)
+    setLoading(true); setData(null); setProfile(null)
     try {
-      const res = await fetch(`/api/signal?ticker=${encodeURIComponent(t)}`)
-      if (!res.ok) throw new Error(`Error ${res.status}`)
-      const json: SignalResponse = await res.json()
+      const [signalRes, profileRes] = await Promise.all([
+        fetch(`/api/signal?ticker=${encodeURIComponent(t)}${force ? '&force=true' : ''}`),
+        fetch(`/api/profile?ticker=${encodeURIComponent(t)}`),
+      ])
+      if (!signalRes.ok) throw new Error(`Error ${signalRes.status}`)
+      let json: SignalResponse = await signalRes.json()
+      if (!json.topPosts && !force) {
+        const fresh = await fetch(`/api/signal?ticker=${encodeURIComponent(t)}&force=true`)
+        if (fresh.ok) json = await fresh.json()
+      }
       sessionCache.current.set(t, json)
       writeCache(t, json)
       localStorage.setItem('signal:last', t)
-      const ts = Date.now()
-      setCachedAt(ts)
+      setCachedAt(Date.now())
       setData(json); setActiveTicker(t)
+      if (profileRes.ok) setProfile(await profileRes.json())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally { setLoading(false) }
@@ -217,6 +227,78 @@ export default function Home() {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+
+            {(profile || data.topPosts?.length > 0) && (
+              <div className="grid grid-cols-2 gap-4">
+                {profile && (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                    <p className="text-xs text-zinc-500 uppercase tracking-widest mb-4">Company Profile</p>
+                    <div className="flex items-start gap-4">
+                      {profile.profile_image_url && (
+                        <img
+                          src={profile.profile_image_url.replace('_normal', '_bigger')}
+                          alt={profile.name}
+                          className="w-14 h-14 rounded-full border border-zinc-700 shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="font-semibold text-white">{profile.name}</span>
+                          {profile.verified && (
+                            <svg className="w-4 h-4 text-blue-400 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91C2.88 9.33 2 10.57 2 12s.88 2.67 2.19 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.92.81C9.33 21.12 10.57 22 12 22s2.67-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91C21.37 14.67 22.25 13.43 22.25 12zm-6.16-1.96l-4.5 6a.75.75 0 01-1.11.1l-2.5-2.5a.75.75 0 011.06-1.06l1.9 1.9 3.99-5.31a.75.75 0 011.16.94z"/>
+                            </svg>
+                          )}
+                        </div>
+                        <p className="text-zinc-500 text-sm mb-2">@{profile.username}</p>
+                        {profile.description && (
+                          <p className="text-zinc-300 text-sm leading-6 mb-3">{profile.description}</p>
+                        )}
+                        <div className="flex gap-5 text-xs text-zinc-500">
+                          <span><span className="text-zinc-200 font-medium">{profile.public_metrics.followers_count.toLocaleString()}</span> followers</span>
+                          <span><span className="text-zinc-200 font-medium">{profile.public_metrics.tweet_count.toLocaleString()}</span> posts</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {data.topPosts?.length > 0 && (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col">
+                    <p className="text-xs text-zinc-500 uppercase tracking-widest mb-4">Top Mentions</p>
+                    <div className="flex flex-col gap-3 overflow-y-auto max-h-64 pr-1">
+                      {data.topPosts.map(post => {
+                        const engagement = post.public_metrics.like_count + post.public_metrics.retweet_count
+                        return (
+                          <a
+                            key={post.id}
+                            href={`https://x.com/i/web/status/${post.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block bg-zinc-800/60 hover:bg-zinc-800 border border-zinc-700/50 hover:border-zinc-600 rounded-lg p-3 transition-colors group"
+                          >
+                            <p className="text-sm text-zinc-200 leading-5 mb-2 line-clamp-3">{post.text}</p>
+                            <div className="flex items-center gap-3 text-xs text-zinc-500">
+                              <span className="flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M16.697 5.5c-1.222-.06-2.679.51-3.89 2.16l-.805 1.09-.806-1.09C9.984 6.01 8.526 5.44 7.304 5.5c-1.243.07-2.349.78-2.91 1.91-.552 1.12-.633 2.78.479 4.82 1.074 1.97 3.257 4.27 7.129 6.61 3.87-2.34 6.052-4.64 7.126-6.61 1.111-2.04 1.03-3.7.477-4.82-.561-1.13-1.666-1.84-2.908-1.91zm4.187 7.69c-1.351 2.48-4.001 5.12-8.379 7.67l-.503.3-.504-.3c-4.379-2.55-7.029-5.19-8.382-7.67-1.36-2.5-1.41-4.86-.514-6.67.887-1.79 2.647-2.91 4.601-3.01 1.651-.09 3.368.56 4.798 2.01 1.429-1.45 3.146-2.1 4.796-2.01 1.954.1 3.714 1.22 4.601 3.01.896 1.81.846 4.17-.514 6.67z"/></svg>
+                                {post.public_metrics.like_count.toLocaleString()}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M4.5 3.88l4.432 4.14-1.364 1.46L5.5 7.55V16c0 1.1.896 2 2 2H13v2H7.5c-2.209 0-4-1.79-4-4V7.55L1.432 9.48.068 8.02 4.5 3.88zM16.5 6H11V4h5.5c2.209 0 4 1.79 4 4v8.45l2.068-1.93 1.364 1.46-4.432 4.14-4.432-4.14 1.364-1.46 2.068 1.93V8c0-1.1-.896-2-2-2z"/></svg>
+                                {post.public_metrics.retweet_count.toLocaleString()}
+                              </span>
+                              <span className="ml-auto text-zinc-600 text-xs group-hover:text-zinc-400 transition-colors">
+                                {engagement.toLocaleString()} eng ↗
+                              </span>
+                            </div>
+                          </a>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
               <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Grok Analysis</p>
