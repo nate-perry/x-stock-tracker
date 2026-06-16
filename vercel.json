@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/warm?secret=${CRON_SECRET}",
-      "schedule": "*/5 13-20 * * 1-5"
+      "schedule": "0 13 * * 1-5"
     }
   ]
 }
