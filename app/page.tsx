@@ -199,9 +199,9 @@ export default function Home() {
                     tickLine={false}
                   />
                   <YAxis yAxisId="price" orientation="right" tick={{ fill: '#52525b', fontSize: 11 }} tickFormatter={v => `$${v}`} axisLine={false} tickLine={false}
-                    domain={([min, max]: [number, number]) => {
+                    domain={([min, max]: readonly [number, number]) => {
                       const pad = (max - min) * 0.1 || 1
-                      return [Math.floor(min - pad), Math.ceil(max + pad)]
+                      return [Math.floor(min - pad), Math.ceil(max + pad)] as [number, number]
                     }}
                   />
                   <YAxis yAxisId="mentions" orientation="left" tick={{ fill: '#52525b', fontSize: 11 }} axisLine={false} tickLine={false} />
